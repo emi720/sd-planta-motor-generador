@@ -4,8 +4,6 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-import numpy as np
-
 from .device import Device, DeviceError
 from .protocol import Frame, Wave
 from .recording import Recording
@@ -14,7 +12,7 @@ from .recording import Recording
 def capture(dev: Device, wave: Wave, duration: float, pre: float = 0.5,
             on_progress: Callable[[float], None] | None = None) -> Recording:
     """Graba al menos `pre` s en duty 0 (línea de base), aplica la onda y graba
-    `duration` s más.
+    `duration` s más, contados desde la primera muestra con la onda.
 
     La onda se aplica cuando el host ya recibió las muestras de `pre`, así que
     la base real dura algunas decenas de ms más. El instante exacto queda en
@@ -30,6 +28,8 @@ def capture(dev: Device, wave: Wave, duration: float, pre: float = 0.5,
     n_dur = round(duration * dev.rate)
     n_total = None
     apply_idx = 0
+    onset = None  # primera muestra con duty != 0 después de aplicar la onda
+    scanned = 0
     n_events = len(dev.events)
     dev.stop()
     try:
@@ -45,6 +45,15 @@ def capture(dev: Device, wave: Wave, duration: float, pre: float = 0.5,
                 dev.set_wave(wave)
                 apply_idx = got
                 n_total = got + n_dur
+            if n_total is not None and onset is None:
+                # La onda puede arrancar unas muestras después de apply_idx:
+                # en cuanto se ve, la duración se cuenta desde ahí.
+                for f in frames[scanned:]:
+                    if f.idx >= apply_idx and f.duty != 0:
+                        onset = f.idx
+                        n_total = onset + n_dur
+                        break
+                scanned = len(frames)
             if n_total is not None and got >= n_total:
                 break
             if on_progress and time.monotonic() - t_last > 0.5:
@@ -58,6 +67,5 @@ def capture(dev: Device, wave: Wave, duration: float, pre: float = 0.5,
         dev.stop()
     frames += dev.pop_frames()
     rec = Recording.from_frames([f for f in frames if f.idx < n_total], dev.rate, dev.steps)
-    nz = np.flatnonzero((rec.idx >= apply_idx) & (rec.duty != 0))
-    rec.onset_idx = int(rec.idx[nz[0]]) if len(nz) else apply_idx
+    rec.onset_idx = onset if onset is not None else apply_idx
     return rec
