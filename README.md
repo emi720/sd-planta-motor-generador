@@ -406,3 +406,10 @@ git rm ../host/src/planta/firmware/planta-fw-<versión vieja>.hex
 ```
 
 El workflow falla si el `.hex` empaquetado no coincide con el que compila.
+
+---
+
+*Sobre el uso de IA: el código y la documentación de este proyecto se
+escribieron con asistencia de Claude Code (Anthropic). Los requisitos, las
+decisiones de diseño y la validación sobre la planta real estuvieron a cargo
+del autor.*
