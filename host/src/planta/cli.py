@@ -87,6 +87,25 @@ def cmd_capture(args) -> None:
     print(f"guardado en {path}")
 
 
+def cmd_flash(args) -> None:
+    from .flasher import FlashError, bundled_hex, flash, parse_hex
+
+    path, version = bundled_hex()
+    if args.hex:
+        path, version = args.hex, args.hex.name
+    img = parse_hex(Path(path).read_text())
+    print(f"cargando planta-fw {version} ({len(img)} bytes) en {args.port}")
+
+    def progress(stage: str, frac: float) -> None:
+        print(f"\r  {stage:12} {frac * 100:5.1f} %", end="" if frac < 1 else "\n", flush=True)
+
+    try:
+        flash(args.port, img, progress)
+    except FlashError as e:
+        sys.exit(f"\nerror: {e}")
+    print("listo: firmware grabado y verificado")
+
+
 def cmd_static_gain(args) -> None:
     from .static_gain import run_static_gain
     run_static_gain(args)
@@ -135,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--down", action="store_true", help="barrer también de bajada (histéresis)")
     p.add_argument("--out", type=Path, help="CSV de salida (default data/<fecha>_ganancia.csv)")
     p.set_defaults(func=cmd_static_gain)
+
+    p = sub.add_parser("flash", help="carga el firmware empaquetado en el Arduino UNO")
+    _add_conn(p)
+    p.add_argument("--hex", type=Path, help="otro .hex en lugar del empaquetado")
+    p.set_defaults(func=cmd_flash)
 
     p = sub.add_parser("gui", help="interfaz gráfica en tiempo real")
     p.set_defaults(func=cmd_gui)
