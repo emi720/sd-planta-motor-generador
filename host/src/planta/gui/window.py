@@ -10,7 +10,8 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..calib import LOADS, Calib
-from ..device import Device, DeviceError, list_ports
+from ..device import SIM_PREFIX, Device, DeviceError, list_ports
+from ..flasher import bundled_hex, flash_bundled
 from ..protocol import (PWM_HZ_MAX, PWM_HZ_MIN, RATE_MAX_HZ, RATE_MIN_HZ, Frame,
                         Wave)
 from ..recording import Recording, base_meta, stamped_name, write_csv
@@ -68,6 +69,23 @@ def _spin(lo: float, hi: float, val: float, dec: int = 2, step: float = 1.0,
     return s
 
 
+class FlashWorker(QtCore.QThread):
+    """Graba el firmware empaquetado sin congelar la ventana."""
+
+    progress = QtCore.Signal(str, float)
+    failed = QtCore.Signal(str)
+
+    def __init__(self, port: str, parent=None):
+        super().__init__(parent)
+        self.port = port
+
+    def run(self) -> None:
+        try:
+            flash_bundled(self.port, self.progress.emit)
+        except Exception as e:  # FlashError, puerto ocupado, desenchufado...
+            self.failed.emit(str(e))
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -115,6 +133,10 @@ class MainWindow(QtWidgets.QMainWindow):
         f.addWidget(btn_ref, 0, 1)
         f.addWidget(self.conn_btn, 1, 0, 1, 2)
         f.addWidget(self.conn_lbl, 2, 0, 1, 2)
+        self.flash_btn = QtWidgets.QPushButton("Cargar firmware…")
+        self.flash_btn.setToolTip("Graba en el Arduino UNO el firmware que trae esta aplicación")
+        self.flash_btn.clicked.connect(self._flash)
+        f.addWidget(self.flash_btn, 3, 0, 1, 2)
         lay.addWidget(g)
 
         # Configuración
@@ -314,6 +336,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_connected(self, on: bool) -> None:
         self.conn_btn.setText("Desconectar" if on else "Conectar")
         self.port_cb.setEnabled(not on)
+        self.flash_btn.setEnabled(not on)
         for w in (self.apply_btn, self.zero_btn, self.cfg_btn, self.rec_btn):
             w.setEnabled(on)
 
@@ -419,7 +442,54 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wave_lbl.setText("Aplicada: DC 0 %")
         self.conn_lbl.setText(f"{port} — fw {self.dev.fw}")
         self._log(f"conectado a {port}, fw {self.dev.fw}, {self.dev.rate:g} Hz, PWM {self.dev.pwm_hz:g} Hz")
+        bundled = bundled_hex()[1]
+        if not port.startswith(SIM_PREFIX) and self.dev.fw != bundled:
+            self._log(f"AVISO: la placa tiene el firmware {self.dev.fw} y esta aplicación trae "
+                      f"el {bundled}. Conviene desconectar y usar «Cargar firmware…».")
+            self.statusBar().showMessage(f"Firmware {self.dev.fw} distinto del de la app ({bundled})", 15000)
         self._set_connected(True)
+
+    def _flash(self) -> None:
+        port = self.port_cb.currentText().strip()
+        if not port or port.startswith(SIM_PREFIX):
+            self._error("Elegí el puerto del Arduino (el simulador no lleva firmware).")
+            return
+        version = bundled_hex()[1]
+        ok = QtWidgets.QMessageBox.question(
+            self, "Cargar firmware",
+            f"Se va a grabar planta-fw {version} en el Arduino UNO conectado a {port}.\n\n"
+            "Se borra lo que tenga cargado. Cerrá cualquier otro programa que use el puerto "
+            "(monitor serie, Arduino IDE). ¿Seguir?")
+        if ok != QtWidgets.QMessageBox.Yes:
+            return
+        dlg = QtWidgets.QProgressDialog("Conectando con el bootloader…", None, 0, 200, self)
+        dlg.setWindowTitle("Cargar firmware")
+        dlg.setWindowModality(QtCore.Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        dlg.setValue(0)
+        worker = FlashWorker(port, self)
+        errors: list[str] = []
+
+        def on_progress(stage: str, frac: float) -> None:
+            dlg.setLabelText(f"{stage.capitalize()}… {frac * 100:.0f} %")
+            dlg.setValue(int((frac if stage == "grabando" else 1 + frac) * 100))
+
+        worker.progress.connect(on_progress)
+        worker.failed.connect(errors.append)
+        worker.finished.connect(dlg.close)
+        self.flash_btn.setEnabled(False)
+        self._log(f"cargando firmware {version} en {port}…")
+        worker.start()
+        while worker.isRunning():
+            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.AllEvents, 50)
+        worker.wait()
+        self.flash_btn.setEnabled(self.dev is None)
+        if errors:
+            self._error(f"No se pudo cargar el firmware: {errors[0]}")
+        else:
+            self._log(f"firmware {version} grabado y verificado")
+            QtWidgets.QMessageBox.information(self, "Cargar firmware",
+                                              f"Listo: planta-fw {version} grabado y verificado.")
 
     def _disconnect(self) -> None:
         if self.rec_frames is not None:

@@ -87,3 +87,29 @@ def test_pausa_congela_y_explora(app):
     w.ov_chk.setChecked(True)
     assert not w.p_out.isVisible() and not w.in_cb.isEnabled()
     w.close()
+
+
+def test_cargar_firmware_desde_la_gui(app, monkeypatch):
+    from PySide6 import QtWidgets as W
+
+    import planta.gui.window as win
+    calls = []
+
+    def fake_flash(port, progress):
+        calls.append(port)
+        progress("grabando", 1.0)
+        progress("verificando", 1.0)
+        return "0.2.0"
+
+    monkeypatch.setattr(win, "flash_bundled", fake_flash)
+    monkeypatch.setattr(W.QMessageBox, "question", lambda *a, **k: W.QMessageBox.Yes)
+    monkeypatch.setattr(W.QMessageBox, "information", lambda *a, **k: None)
+    w = MainWindow()
+    w.port_cb.setCurrentText("/dev/ttyFAKE0")
+    w._flash()
+    assert calls == ["/dev/ttyFAKE0"]
+    assert "grabado y verificado" in w.log.toPlainText()
+    w.port_cb.setCurrentText("sim://")
+    w._toggle_connect()
+    assert not w.flash_btn.isEnabled()   # conectado: no se puede grabar
+    w.close()
