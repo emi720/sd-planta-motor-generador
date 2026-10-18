@@ -33,7 +33,10 @@ class Recording:
 
     @property
     def t(self) -> np.ndarray:
-        return self.idx / self.rate
+        """Tiempo desde la primera muestra grabada."""
+        if len(self.idx) == 0:
+            return np.zeros(0)
+        return (self.idx - self.idx[0]) / self.rate
 
     @property
     def duty_pct(self) -> np.ndarray:
