@@ -3,6 +3,8 @@ firmware/.pio/
 firmware/.vscode/
 
 # Python
+host/build/
+host/dist/
 host/.venv/
 __pycache__/
 *.egg-info/

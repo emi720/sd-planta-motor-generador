@@ -15,11 +15,36 @@ ver la salida en tiempo real y grabar ambas**.
 
 ![GUI con la planta real: cuadrada entre 30 y 70 % de duty](docs/img/gui.png)
 
+## Instalación rápida (sin Python ni PlatformIO)
+
+Bajar el paquete de tu sistema desde **Releases** (columna derecha del repo
+en GitHub):
+
+| Sistema | Archivo | Cómo instalar |
+|---|---|---|
+| Windows 10/11 | `Planta-windows-x64.zip` | Descomprimir y abrir `Planta\Planta.exe`. Si aparece SmartScreen: *Más información → Ejecutar de todas formas* |
+| macOS (Apple Silicon) | `Planta-macos-arm64.dmg` | Arrastrar *Planta* a Aplicaciones. La app no está firmada: la primera vez macOS la bloquea; ir a *Configuración del Sistema → Privacidad y seguridad → Abrir igualmente* |
+| Linux x86_64 | `Planta-linux-x86_64.tar.gz` | `tar xzf Planta-linux-x86_64.tar.gz && Planta-linux-x86_64/instalar.sh` (sin sudo; queda en el menú de aplicaciones) |
+
+Después:
+
+1. Conectar el Arduino UNO, elegir su puerto y tocar **Cargar firmware…**
+   (solo la primera vez, o cuando la app avise que la placa tiene otra
+   versión). No hace falta el IDE de Arduino ni PlatformIO.
+2. **Conectar** y usar (ver [GUI](#gui)).
+
+Drivers: los UNO originales no necesitan nada. Los clones con chip **CH340**
+andan solos en Linux y casi siempre en Windows (Windows Update); en macOS
+puede hacer falta el driver de WCH. En Linux el usuario tiene que estar en el
+grupo `dialout` (el instalador avisa si no lo está).
+
 ## Contenido
 
 ```
 firmware/        PlatformIO para Arduino UNO
 host/            paquete Python "planta": GUI, CLI, simulador y tests
+host/packaging/  PyInstaller, íconos e instalador de Linux
+.github/         workflow que arma los ejecutables de los tres sistemas
 examples/        minimo.py: cliente de ~80 líneas que solo usa pyserial
 docs/            PROTOCOLO.md: protocolo serie y funcionamiento del firmware
 data/            capturas (ignoradas por git, salvo los ejemplo_*)
@@ -71,6 +96,13 @@ pio device monitor                        # monitor serie a 250000 baud
 
 Si la subida falla con `protocol error` o `not in sync`, casi siempre hay
 otro programa con el puerto abierto: cerrar el monitor serie y la GUI.
+
+**Sin PlatformIO:** la aplicación trae el firmware compilado
+(`host/src/planta/firmware/planta-fw-<versión>.hex`) y lo graba ella misma,
+con el botón **Cargar firmware…** de la GUI o con
+`planta flash --port /dev/ttyUSB0`. Habla directamente con el bootloader del
+UNO (STK500v1, sin avrdude), verifica la firma del ATmega328P y relee todo lo
+grabado.
 
 **Prueba manual desde el monitor serie** (con el motor a la vista):
 
@@ -125,7 +157,8 @@ planta gui
 ```
 
 1. Elegir el puerto (o `sim://` para el simulador) y **Conectar**. El
-   streaming arranca solo, con duty 0.
+   streaming arranca solo, con duty 0. Si la placa es nueva o tiene otra
+   versión del firmware, antes de conectar usar **Cargar firmware…**.
 2. **Señal de entrada:** continua, cuadrada o senoidal, con sus parámetros, y
    **Aplicar señal**. Si los valores no son válidos (por ejemplo,
    offset − amplitud < 0) aparece el error y no se manda nada.
@@ -334,3 +367,42 @@ programa que abra el puerto serie lo puede usar, sin depender de esta app.
 pip install pyserial
 python examples/minimo.py /dev/ttyUSB0
 ```
+
+## 9. Generar los ejecutables
+
+Se arman con PyInstaller (`host/packaging/planta.spec`, el mismo para los
+tres sistemas). Cada sistema se arma en sí mismo; no hay compilación cruzada.
+
+**Local** (en el sistema en el que estás):
+
+```bash
+cd host
+.venv/bin/pip install -e ".[build]"
+.venv/bin/pyinstaller --noconfirm packaging/planta.spec
+dist/Planta/Planta --selftest      # macOS: dist/Planta.app/Contents/MacOS/Planta
+```
+
+`--selftest` verifica el ejecutable sin pantalla ni Arduino: firmware
+empaquetado, puertos, ventana y adquisición contra el simulador.
+
+**Los tres sistemas a la vez:** el workflow `.github/workflows/build.yml`
+corre en GitHub Actions en cada push: compila el firmware, corre los tests en
+Linux, Windows y macOS, arma los tres ejecutables, les corre `--selftest` y
+los deja como artefactos. Para publicar una versión:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+y el workflow crea el Release con los tres paquetes.
+
+**Si cambiás el firmware:** subir `FW_VERSION` en `firmware/src/config.h`,
+compilar y copiar el `.hex` al paquete:
+
+```bash
+cd firmware && pio run
+cp .pio/build/uno/firmware.hex ../host/src/planta/firmware/planta-fw-<versión>.hex
+git rm ../host/src/planta/firmware/planta-fw-<versión vieja>.hex
+```
+
+El workflow falla si el `.hex` empaquetado no coincide con el que compila.

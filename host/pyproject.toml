@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+build = ["pyinstaller>=6.10", "pillow>=10"]
 
 [project.scripts]
 planta = "planta.cli:main"
@@ -25,7 +26,7 @@ planta = "planta.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-planta = ["firmware/*.hex"]
+planta = ["firmware/*.hex", "gui/icon.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

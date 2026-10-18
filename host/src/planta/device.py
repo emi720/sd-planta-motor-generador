@@ -25,10 +25,21 @@ def open_transport(port: str):
     return serial.Serial(port, BAUD, timeout=0.05)
 
 
+def port_is_candidate(device: str, platform: str | None = None) -> bool:
+    """¿Puede ser un Arduino? Descarta los puertos que nunca lo son."""
+    import sys
+    platform = platform or sys.platform
+    if platform.startswith("linux"):
+        return "ttyUSB" in device or "ttyACM" in device  # no los ttyS* de la placa madre
+    if platform == "darwin":
+        # En macOS cada puerto aparece como tty.* y cu.*: se usa cu.* (no espera DCD).
+        return device.startswith("/dev/cu.") and "Bluetooth" not in device
+    return True  # Windows: COMn
+
+
 def list_ports() -> list[str]:
     from serial.tools import list_ports as lp
-    ports = sorted(p.device for p in lp.comports()
-                   if "ttyUSB" in p.device or "ttyACM" in p.device)
+    ports = sorted(p.device for p in lp.comports() if port_is_candidate(p.device))
     return ports + [SIM_PREFIX]
 
 

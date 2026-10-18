@@ -57,3 +57,14 @@ def test_duty_max_configurable():
 
 def test_describe():
     assert Wave.sin(1, 50, 30).describe() == "SIN f=1Hz offset=50% amp=30%"
+
+
+@pytest.mark.parametrize("dev,plat,ok", [
+    ("/dev/ttyUSB0", "linux", True), ("/dev/ttyACM0", "linux", True), ("/dev/ttyS0", "linux", False),
+    ("COM3", "win32", True),
+    ("/dev/cu.usbserial-1410", "darwin", True), ("/dev/tty.usbserial-1410", "darwin", False),
+    ("/dev/cu.Bluetooth-Incoming-Port", "darwin", False),
+])
+def test_puertos_candidatos(dev, plat, ok):
+    from planta.device import port_is_candidate
+    assert port_is_candidate(dev, plat) is ok
