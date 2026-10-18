@@ -39,7 +39,7 @@ def test_conectar_aplicar_grabar(app, tmp_path):
     w._zero()
     _run(app, 0.3)
     w._toggle_record()
-    files = list(tmp_path.glob("captura_*.csv"))
+    files = list(tmp_path.glob("*_captura.csv"))
     assert len(files) == 1
     meta, cols = read_csv(files[0])
     assert meta["origen"] == "GUI"

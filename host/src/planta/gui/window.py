@@ -13,13 +13,20 @@ from ..calib import LOADS, Calib
 from ..device import Device, DeviceError, list_ports
 from ..protocol import (PWM_HZ_MAX, PWM_HZ_MIN, RATE_MAX_HZ, RATE_MIN_HZ, Frame,
                         Wave)
-from ..recording import Recording, base_meta, write_csv
+from ..recording import Recording, base_meta, stamped_name, write_csv
 from .pwm_trace import MAX_PULSES, pwm_trace
 
 REFRESH_MS = 33
 HISTORY_S = 120  # lo que se guarda para el gráfico (no afecta la grabación)
 
 pg.setConfigOptions(background="w", foreground="k", antialias=False)
+
+
+def default_capture_dir() -> Path:
+    """Documentos del sistema (~/Documentos en un Ubuntu en español, Documents
+    en Windows y macOS) / Planta motor-generador."""
+    docs = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
+    return Path(docs or Path.home()) / "Planta motor-generador"
 
 
 class SampleBuffer:
@@ -190,7 +197,11 @@ class MainWindow(QtWidgets.QMainWindow):
         g = QtWidgets.QGroupBox("Grabación")
         f = QtWidgets.QGridLayout(g)
         self.name_ed = QtWidgets.QLineEdit("captura")
-        self.dir_ed = QtWidgets.QLineEdit(str(Path.cwd() / "data"))
+        self.settings = QtCore.QSettings("planta", "planta-gui")
+        self.dir_ed = QtWidgets.QLineEdit(
+            str(self.settings.value("capture_dir", str(default_capture_dir()))))
+        self.dir_ed.setToolTip("Se crea si no existe. Se recuerda para la próxima vez.")
+        self.dir_ed.editingFinished.connect(self._save_dir)
         btn_dir = QtWidgets.QPushButton("…")
         btn_dir.setFixedWidth(32)
         btn_dir.clicked.connect(self._pick_dir)
@@ -318,6 +329,10 @@ class MainWindow(QtWidgets.QMainWindow):
         d = QtWidgets.QFileDialog.getExistingDirectory(self, "Carpeta de capturas", self.dir_ed.text())
         if d:
             self.dir_ed.setText(d)
+            self._save_dir()
+
+    def _save_dir(self) -> None:
+        self.settings.setValue("capture_dir", self.dir_ed.text())
 
     def _volts(self) -> bool:
         return self.in_cb.currentIndex() == 0 or self.ov_chk.isChecked()
@@ -506,7 +521,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"t={max(i - i0, 0) / rec.rate:.3f}s {d}" for i, d in self.rec_waves)
         meta["tramas_crc_mal"] = str(self.dev.parser.crc_errors)
         name = self.name_ed.text().strip() or "captura"
-        path = Path(self.dir_ed.text()) / f"{name}_{dt.datetime.now():%Y%m%d_%H%M%S}.csv"
+        path = Path(self.dir_ed.text()).expanduser() / stamped_name(name)
         try:
             write_csv(path, rec, calib, meta)
         except OSError as e:

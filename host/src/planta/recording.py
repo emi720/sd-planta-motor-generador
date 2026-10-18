@@ -14,6 +14,12 @@ from .protocol import Frame
 COLUMNS = ("t_s", "sample_idx", "duty_pct", "Vm_nom_V", "adc_raw", "VL_V")
 
 
+def stamped_name(label: str, ext: str = ".csv") -> str:
+    """AAAAMMDD_HHMMSS_<label><ext>: la fecha adelante ordena los archivos solos."""
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in label.strip()) or "captura"
+    return f"{dt.datetime.now():%Y%m%d_%H%M%S}_{safe}{ext}"
+
+
 @dataclass
 class Recording:
     rate: float

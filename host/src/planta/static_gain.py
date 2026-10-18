@@ -7,7 +7,6 @@ la histéresis de la zona muerta.
 """
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -17,7 +16,7 @@ import numpy as np
 from .calib import Calib
 from .device import Device, DeviceError
 from .protocol import Frame, Wave
-from .recording import Recording, base_meta, write_csv
+from .recording import Recording, base_meta, stamped_name, write_csv
 
 COLUMNS = ("paso", "sentido", "duty_pct", "Vm_nom_V", "VL_V", "VL_std_V",
            "adc_raw_medio", "n_muestras", "ganancia_VL_Vm")
@@ -149,8 +148,7 @@ def plot_steps(path: Path, steps: list[Step], title: str) -> Path:
 def run_static_gain(args) -> None:
     """Entrada de la CLI: planta static-gain ..."""
     duties = duty_list(args.d_from, args.d_to, args.step, args.down)
-    stamp = f"{dt.datetime.now():%Y%m%d_%H%M%S}"
-    out = Path(args.out) if args.out else Path("data") / f"ganancia_{stamp}.csv"
+    out = Path(args.out) if args.out else Path("data") / stamped_name("ganancia")
     with Device(args.port) as dev:
         dev.set_pwm(args.pwmf)
         dev.set_rate(args.rate)

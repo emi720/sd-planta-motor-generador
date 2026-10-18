@@ -82,3 +82,12 @@ def test_csv_ida_y_vuelta(dev, tmp_path):
     assert np.allclose(cols["t_s"], rec.t)
     assert np.allclose(cols["Vm_nom_V"], rec.duty_pct * 12 / 100, atol=1e-4)
     assert np.allclose(cols["VL_V"], 2.03 * rec.adc * 4.95 / 1023, atol=1e-4)
+
+
+def test_nombre_con_fecha_adelante():
+    import re
+
+    from planta.recording import stamped_name
+    assert re.fullmatch(r"\d{8}_\d{6}_sin\.csv", stamped_name("sin"))
+    assert re.fullmatch(r"\d{8}_\d{6}_escalon_50_.csv", stamped_name("escalon 50%"))
+    assert stamped_name("  ").endswith("_captura.csv")

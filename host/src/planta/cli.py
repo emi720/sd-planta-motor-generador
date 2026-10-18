@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import sys
 from pathlib import Path
 
 from .calib import LOADS, Calib
 from .device import Device, DeviceError, list_ports
 from .protocol import Wave
+from .recording import stamped_name
 
 
 def _add_conn(p: argparse.ArgumentParser) -> None:
@@ -63,7 +63,7 @@ def cmd_capture(args) -> None:
     from .recording import base_meta, write_csv
 
     wave = _wave_from_args(args)
-    out = args.out or Path("data") / f"{wave.kind}_{dt.datetime.now():%Y%m%d_%H%M%S}.csv"
+    out = args.out or Path("data") / stamped_name(wave.kind)
     with Device(args.port) as dev:
         calib = _setup(dev, args)
         wave.validate(dev.rate)
@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--amp", type=float, help="SIN: amplitud en %% de duty")
     p.add_argument("--duration", type=float, required=True, help="segundos con la onda aplicada")
     p.add_argument("--pre", type=float, default=0.5, help="segundos en duty 0 antes de la onda (default 0.5)")
-    p.add_argument("--out", type=Path, help="CSV de salida (default data/<onda>_<fecha>.csv)")
+    p.add_argument("--out", type=Path, help="CSV de salida (default data/<fecha>_<onda>.csv)")
     p.set_defaults(func=cmd_capture)
 
     p = sub.add_parser("static-gain", help="ensayo de ganancia estática por escalones de duty")
@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settle", type=float, default=2, help="espera de régimen por escalón en s (default 2)")
     p.add_argument("--avg", type=float, default=1, help="ventana de promedio en s (default 1)")
     p.add_argument("--down", action="store_true", help="barrer también de bajada (histéresis)")
-    p.add_argument("--out", type=Path, help="CSV de salida (default data/ganancia_<fecha>.csv)")
+    p.add_argument("--out", type=Path, help="CSV de salida (default data/<fecha>_ganancia.csv)")
     p.set_defaults(func=cmd_static_gain)
 
     p = sub.add_parser("gui", help="interfaz gráfica en tiempo real")
