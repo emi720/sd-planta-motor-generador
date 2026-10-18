@@ -1,7 +1,7 @@
 #pragma once
 
 // Versión informada por PING y STATUS, y registrada en la metadata del CSV.
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.2.0"
 
 #define SERIAL_BAUD 250000UL
 

@@ -2,8 +2,10 @@
 #include <stdint.h>
 
 // PWM en el pin 9 (OC1A) por Timer1, Fast PWM modo 14 con TOP = ICR1 y
-// prescaler 1: pasos = 16 MHz / f. A 4 kHz son 4000 pasos; a 20 kHz, 800.
-#define PWM_HZ_DEFAULT 4000UL
+// prescaler 1: pasos = 16 MHz / f. A 1 kHz son 16000 pasos; a 20 kHz, 800.
+// Default 1 kHz: a 4 kHz la zona muerta del L298N + motor casi se duplica
+// (para en 40 % contra 22 %, ver README).
+#define PWM_HZ_DEFAULT 1000UL
 #define PWM_HZ_MIN 250UL    // TOP <= 65535
 #define PWM_HZ_MAX 20000UL  // por encima del oído; quedan 800 pasos
 
