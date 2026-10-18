@@ -5,7 +5,7 @@
 //   [0]    0xA5        sync
 //   [1]    0x5A        sync
 //   [2:6]  uint32      índice de muestra (arranca en 0 con START)
-//   [6:8]  uint16      duty aplicado, en cuentas (0..PWM_STEPS)
+//   [6:8]  uint16      duty aplicado, en cuentas (0..steps, ver STATUS)
 //   [8:10] uint16      lectura cruda del ADC (0..1023)
 //   [10]   uint8       CRC-8/MAXIM de los bytes [2:10]
 //

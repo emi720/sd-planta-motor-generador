@@ -12,10 +12,8 @@
 #include "sampler.h"
 #include "wavegen.h"
 
-#define DUTY_MAX_COUNTS ((uint16_t)(DUTY_MAX_PCT * PWM_STEPS / 100.0f + 0.5f))
-
 // Último comando de forma de onda, en las unidades del usuario. Se guarda
-// para recalcular el incremento de fase si cambia la frecuencia de muestreo.
+// para recalcular fase y cuentas si cambia la frecuencia de muestreo o del PWM.
 struct WaveCmd {
     uint8_t type;
     float f;
@@ -31,7 +29,7 @@ static uint8_t line_len = 0;
 static bool line_overflow = false;
 
 static uint16_t pct_to_counts(float pct) {
-    return (uint16_t)(pct * PWM_STEPS / 100.0f + 0.5f);
+    return (uint16_t)(pct * pwm_steps() / 100.0f + 0.5f);
 }
 
 static uint32_t phase_inc(float f, float fs) {
@@ -129,9 +127,9 @@ static void print_status() {
     Serial.print(F("OK STATUS fw=" FW_VERSION " rate="));
     Serial.print(sampler_rate(), 3);
     Serial.print(F(" steps="));
-    Serial.print(PWM_STEPS);
+    Serial.print(pwm_steps());
     Serial.print(F(" pwm_hz="));
-    Serial.print(PWM_HZ);
+    Serial.print(pwm_freq(), 1);
     Serial.print(F(" duty_max="));
     Serial.print(DUTY_MAX_PCT, 2);
     Serial.print(F(" duty="));
@@ -187,6 +185,21 @@ static void handle_line(char *s) {
         }
         Serial.print(F("OK RATE "));
         Serial.print(sampler_rate(), 3);
+        Serial.print('\n');
+
+    } else if (!strcmp(cmd, "PWMF")) {
+        if (!parse_args(v, 1))
+            return err(F("uso: PWMF <Hz>"));
+        if (sampler_streaming())
+            return err(F("PWMF no se puede cambiar durante el streaming"));
+        if (v[0] < PWM_HZ_MIN || v[0] > PWM_HZ_MAX ||
+            pwm_set_freq((uint32_t)(v[0] + 0.5f)) == 0)
+            return err(F("PWMF fuera de rango (250..20000 Hz)"));
+        apply_wave(wave);  // reconvierte los % a la nueva cantidad de pasos
+        Serial.print(F("OK PWMF "));
+        Serial.print(pwm_freq(), 1);
+        Serial.print(F(" steps="));
+        Serial.print(pwm_steps());
         Serial.print('\n');
 
     } else if (!strcmp(cmd, "DC")) {
@@ -304,7 +317,7 @@ static void check_watchdog() {
 
 void setup() {
     // Seguridad primero: pin 9 en bajo antes que nada.
-    pwm_init();
+    pwm_init(PWM_HZ_DEFAULT);
     Serial.begin(SERIAL_BAUD);
     sampler_init(RATE_DEFAULT_HZ);
     stop_all();
