@@ -2,6 +2,8 @@
 import os
 import time
 
+import numpy as np
+
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -60,4 +62,28 @@ def test_onda_invalida_no_se_aplica(app, monkeypatch):
     w.sin_amp.setValue(30)  # offset - amp < 0
     w._apply_wave()
     assert errores and w.wave.kind == "dc"
+    w.close()
+
+
+def test_pausa_congela_y_explora(app):
+    w = MainWindow()
+    w.port_cb.setCurrentText("sim://")
+    w._toggle_connect()
+    w._set_wave(__import__("planta.protocol", fromlist=["Wave"]).Wave.dc(60))
+    _run(app, 0.5)
+    w._toggle_pause()
+    assert w.paused and w.all_btn.isEnabled()
+    n_snap = len(w.snap)
+    x_before = w.c_in.getData()[0][-1]
+    _run(app, 0.4)
+    assert w.c_in.getData()[0][-1] == x_before   # el gráfico no avanza
+    assert w.buf.n > n_snap                       # la adquisición sigue
+    w.p_in.setXRange(x_before - 0.01, x_before, padding=0)
+    _run(app, 0.1)
+    x, y = w.c_pwm.getData()
+    assert set(np.unique(y)) <= {0.0, 12.0} and len(x) >= 4 * 9  # pulsos
+    w._toggle_pause()
+    assert not w.paused
+    w.ov_chk.setChecked(True)
+    assert not w.p_out.isVisible() and not w.in_cb.isEnabled()
     w.close()

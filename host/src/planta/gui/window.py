@@ -14,6 +14,7 @@ from ..device import Device, DeviceError, list_ports
 from ..protocol import (PWM_HZ_MAX, PWM_HZ_MIN, RATE_MAX_HZ, RATE_MIN_HZ, Frame,
                         Wave)
 from ..recording import Recording, base_meta, write_csv
+from .pwm_trace import MAX_PULSES, pwm_trace
 
 REFRESH_MS = 33
 HISTORY_S = 120  # lo que se guarda para el gráfico (no afecta la grabación)
@@ -216,7 +217,18 @@ class MainWindow(QtWidgets.QMainWindow):
         top = QtWidgets.QHBoxLayout()
         self.win_sp = _spin(1, HISTORY_S, 10, 0, 1, "s")
         self.in_cb = QtWidgets.QComboBox()
-        self.in_cb.addItems(["Duty [%]", "V_m nominal [V]"])
+        self.in_cb.addItems(["Voltios [V]", "Duty [%]"])
+        self.ov_chk = QtWidgets.QCheckBox("Superponer entrada y salida")
+        self.ov_chk.setToolTip("Un solo gráfico en voltios: PWM, V_m medio y V_L")
+        self.pause_btn = QtWidgets.QPushButton("⏸ Pausar  (Espacio)")
+        self.pause_btn.setToolTip("Congela el gráfico para explorarlo. La adquisición "
+                                  "y la grabación siguen corriendo.")
+        self.pause_btn.clicked.connect(self._toggle_pause)
+        QtGui.QShortcut(QtGui.QKeySequence("Space"), self, activated=self._toggle_pause)
+        self.all_btn = QtWidgets.QPushButton("Ver todo")
+        self.all_btn.setToolTip("Muestra toda la historia (hasta 120 s)")
+        self.all_btn.clicked.connect(self._view_all)
+        self.all_btn.setEnabled(False)
         self.vl_lbl = QtWidgets.QLabel("V_L: —")
         font = self.vl_lbl.font()
         font.setPointSize(font.pointSize() + 4)
@@ -227,6 +239,11 @@ class MainWindow(QtWidgets.QMainWindow):
         top.addSpacing(16)
         top.addWidget(QtWidgets.QLabel("Entrada en"))
         top.addWidget(self.in_cb)
+        top.addSpacing(16)
+        top.addWidget(self.ov_chk)
+        top.addSpacing(16)
+        top.addWidget(self.pause_btn)
+        top.addWidget(self.all_btn)
         top.addStretch(1)
         top.addWidget(self.vl_lbl)
         rl.addLayout(top)
@@ -241,11 +258,20 @@ class MainWindow(QtWidgets.QMainWindow):
             p.setMouseEnabled(x=False, y=True)
         self.p_out.setXLink(self.p_in)
         self.p_out.setLabel("bottom", "t", units="s")
-        self.p_in.setYRange(0, 100)
         self.p_out.setYRange(0, 8)
-        self.c_in = self.p_in.plot(pen=pg.mkPen("#1565c0", width=1.5))
-        self.c_out = self.p_out.plot(pen=pg.mkPen("#c62828", width=1.5))
-        self.in_cb.currentIndexChanged.connect(self._input_units_changed)
+        self.legend: pg.LegendItem | None = None
+        self.c_pwm = self.p_in.plot(pen=pg.mkPen("#d6d6d6", width=1))
+        self.c_pwm.setZValue(-10)
+        self.pwm_fill = False
+        self.c_in = self.p_in.plot(pen=pg.mkPen("#1565c0", width=2))
+        self.c_ov = self.p_in.plot(pen=pg.mkPen("#c62828", width=2))
+        self.c_out = self.p_out.plot(pen=pg.mkPen("#c62828", width=2))
+        self.in_cb.currentIndexChanged.connect(self._view_mode_changed)
+        self.ov_chk.toggled.connect(self._view_mode_changed)
+        self.vs_sp.valueChanged.connect(self._view_mode_changed)
+        self.p_in.sigXRangeChanged.connect(self._x_range_changed)
+        self.paused = False
+        self.snap = np.zeros((0, 3), dtype=np.int64)
         rl.addWidget(self.p_in, 1)
         rl.addWidget(self.p_out, 1)
 
@@ -257,6 +283,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.stats_lbl = QtWidgets.QLabel("")
         self.statusBar().addPermanentWidget(self.stats_lbl)
+        self._view_mode_changed()
 
     # ---- helpers ----
 
@@ -292,11 +319,58 @@ class MainWindow(QtWidgets.QMainWindow):
         if d:
             self.dir_ed.setText(d)
 
-    def _input_units_changed(self) -> None:
-        if self.in_cb.currentIndex() == 0:
-            self.p_in.setYRange(0, 100)
+    def _volts(self) -> bool:
+        return self.in_cb.currentIndex() == 0 or self.ov_chk.isChecked()
+
+    def _view_mode_changed(self) -> None:
+        ov = self.ov_chk.isChecked()
+        volts = self._volts()
+        self.in_cb.setEnabled(not ov)
+        self.p_out.setVisible(not ov)
+        self.c_ov.setVisible(ov)
+        self.c_pwm.setVisible(volts)
+        self.p_in.setLabel("bottom", "t", units="s") if ov else self.p_in.setLabel("bottom", "")
+        self.p_in.setTitle("Entrada y salida [V]" if ov else
+                           "Entrada [V]" if volts else "Entrada: duty [%]")
+        vs = self.vs_sp.value()
+        self.p_in.setYRange(0, max(vs, 8) * 1.05 if ov else vs * 1.05 if volts else 100)
+        # LegendItem.clear() + addItem deja muestras viejas pintadas: se rehace.
+        if self.legend is not None:
+            self.legend.scene().removeItem(self.legend)
+        self.legend = pg.LegendItem(offset=(10, 10))
+        self.legend.setParentItem(self.p_in.getPlotItem().vb)
+        if volts:
+            self.legend.addItem(self.c_pwm, "PWM (reconstruido)")
+            self.legend.addItem(self.c_in, "V_m medio = d·Vs")
         else:
-            self.p_in.setYRange(0, self.vs_sp.value())
+            self.legend.addItem(self.c_in, "duty")
+        if ov:
+            self.legend.addItem(self.c_ov, "V_L")
+        self._redraw()
+
+    def _toggle_pause(self) -> None:
+        if not self.dev and not self.paused:
+            return
+        self.paused = not self.paused
+        self.pause_btn.setText("▶ Reanudar  (Espacio)" if self.paused else "⏸ Pausar  (Espacio)")
+        self.all_btn.setEnabled(self.paused)
+        for p in (self.p_in, self.p_out):
+            p.setMouseEnabled(x=self.paused, y=True)
+        if self.paused:
+            self.snap = self.buf.last(self.buf.n).copy()
+            self._redraw()
+        else:
+            self.snap = np.zeros((0, 3), dtype=np.int64)
+
+    def _view_all(self) -> None:
+        if self.paused and len(self.snap) and self.dev:
+            t = self.snap[:, 0] / self.dev.rate
+            self.p_in.setXRange(t[0], t[-1], padding=0.01)
+
+    def _x_range_changed(self) -> None:
+        # En pausa, el zoom cambia cuántos pulsos de PWM entran: se recalcula.
+        if self.paused:
+            self._redraw(keep_range=True)
 
     def _reset_stream(self) -> None:
         self.buf.clear()
@@ -338,6 +412,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.dev:
             self.dev.close()
         self.dev = None
+        if self.paused:
+            self._toggle_pause()
         self.conn_lbl.setText("Desconectado")
         self._log("desconectado (duty 0)")
         self._set_connected(False)
@@ -350,6 +426,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.dev.set_pwm(self.pwm_sp.value())
             self.dev.set_rate(self.rate_sp.value())
             self._reset_stream()
+            if self.paused:
+                self._toggle_pause()
             self.dev.start()
         except (DeviceError, ValueError) as e:
             self._error(str(e))
@@ -470,7 +548,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.rec_frames += frames
             self.rate_count += len(frames)
 
-        self._update_plot(dev)
+        if not self.paused:
+            self._redraw()
 
         now = time.monotonic()
         if now - self.rate_t0 >= 1.0:
@@ -484,21 +563,44 @@ class MainWindow(QtWidgets.QMainWindow):
             self.rec_lbl.setText(f"● {len(self.rec_frames) / dev.rate:.1f} s grabados "
                                  f"({len(self.rec_frames)} muestras)")
 
-    def _update_plot(self, dev: Device) -> None:
+    def _redraw(self, keep_range: bool = False) -> None:
+        dev = self.dev
+        if not dev:
+            return
         win = self.win_sp.value()
-        d = self.buf.last(int(win * dev.rate))
+        d = self.snap if self.paused else self.buf.last(int(win * dev.rate))
         if len(d) == 0:
             return
         calib = self.calib()
         t = d[:, 0] / dev.rate
         duty_pct = d[:, 1] * 100.0 / dev.steps
-        y_in = duty_pct if self.in_cb.currentIndex() == 0 else calib.vm_nom(duty_pct)
         vl = calib.vl(d[:, 2])
-        self.c_in.setData(t, y_in)
+        volts = self._volts()
+        self.c_in.setData(t, calib.vm_nom(duty_pct) if volts else duty_pct)
         self.c_out.setData(t, vl)
-        self.p_in.setXRange(t[-1] - win, t[-1], padding=0)
-        k = max(int(0.5 * dev.rate), 1)
-        self.vl_lbl.setText(f"V_L = {vl[-k:].mean():.3f} V   (raw {d[-k:, 2].mean():.1f})")
+        self.c_ov.setData(t, vl)
+
+        if keep_range or self.paused:
+            x0, x1 = self.p_in.viewRange()[0]
+            if not keep_range and not (t[0] <= x1 and x0 <= t[-1]):
+                x0, x1 = t[-1] - win, t[-1]
+                self.p_in.setXRange(x0, x1, padding=0)
+        else:
+            x0, x1 = t[-1] - win, t[-1]
+            self.p_in.setXRange(x0, x1, padding=0)
+        if volts:
+            # Envolvente con relleno; pulsos individuales solo con contorno
+            # (el relleno semitransparente de miles de pulsos ensucia las curvas).
+            fill = (x1 - x0) * dev.pwm_hz > MAX_PULSES
+            if fill != self.pwm_fill:
+                self.pwm_fill = fill
+                self.c_pwm.setFillLevel(0 if fill else None)
+                self.c_pwm.setBrush(pg.mkBrush(215, 215, 215, 90) if fill else None)
+            self.c_pwm.setData(*pwm_trace(t, duty_pct / 100, dev.pwm_hz, calib.vs, x0, x1))
+
+        if not self.paused:
+            k = max(int(0.5 * dev.rate), 1)
+            self.vl_lbl.setText(f"V_L = {vl[-k:].mean():.3f} V   (raw {d[-k:, 2].mean():.1f})")
 
     def closeEvent(self, ev: QtGui.QCloseEvent) -> None:
         if self.dev:
