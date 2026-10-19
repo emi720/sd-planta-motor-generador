@@ -52,19 +52,10 @@ data/            capturas (ignoradas por git, salvo los ejemplo_*)
 
 ## 1. Hardware y conexionado
 
-```
-            +12 V                              Generador DC
-              |                                 +---------+
-        +-----------+      eje       +-------+  |         |---+--- V_L
- pin 9 -| ENA       |  OUT1/OUT2 --->| Motor |==|         |   |
-  +5 V -| IN1       |                +-------+  +---------+  [SW1 560 Ω] [SW2 470 Ω]
-   GND -| IN2  L298N|                                          |
-        +-----------+                                         GND
-                                     V_L --[10k]--+--[10k]-- GND
-                                                  |
-                                       A0 <-------+---[1 µF]--- GND
-                                                  +---[Z 5V1]-- GND
-```
+![Esquemático de la planta](docs/img/esquematico.svg)
+
+M = motor, G = generador (acoplados por el eje). Las dos etiquetas **A0** son
+el mismo nodo.
 
 | Señal | Conexión |
 |---|---|
